@@ -16,18 +16,17 @@
 package com.asakusafw.spark.compiler
 package graph
 
-import scala.collection.JavaConversions._
-
-import org.objectweb.asm.Type
-
 import com.asakusafw.lang.compiler.model.graph.OperatorOutput
 import com.asakusafw.lang.compiler.planning.SubPlan
-import com.asakusafw.spark.compiler.planning.{ SubPlanInfo, SubPlanInputInfo }
+import com.asakusafw.spark.compiler.planning.{PartitionGroupInfo, SubPlanInfo, SubPlanInputInfo}
 import com.asakusafw.spark.compiler.util.NumPartitions._
 import com.asakusafw.spark.compiler.util.SparkIdioms._
-import com.asakusafw.spark.tools.asm._
 import com.asakusafw.spark.tools.asm.MethodBuilder._
+import com.asakusafw.spark.tools.asm._
 import com.asakusafw.spark.tools.asm4s._
+import org.objectweb.asm.Type
+
+import scala.collection.JavaConversions._
 
 object CoGroupInstantiator extends Instantiator {
 
@@ -48,7 +47,6 @@ object CoGroupInstantiator extends Instantiator {
       s"The grouping of all inputs should be the same: ${
         properties.map(_.mkString("(", ",", ")")).mkString("(", ",", ")")
       } [${subplan}]")
-
     val cogroup = pushNew(nodeType)
     cogroup.dup().invokeInit(
       buildSeq { builder =>
@@ -83,9 +81,14 @@ object CoGroupInstantiator extends Instantiator {
       if (properties.head.isEmpty) {
         partitioner(ldc(1))
       } else {
+        // TODO: refactoring may ne nice
+        val portWithMaxDataSize = subplan.getInputs.maxBy(port =>
+          Option(port.getAttribute(classOf[PartitionGroupInfo])).map(_.getDataSize).
+            getOrElse(PartitionGroupInfo.DataSize.REGULAR))
+//        println(s"********* portWithMaxDataSize: ${portWithMaxDataSize}")
+//        println(s"${portWithMaxDataSize.getOperator.getOutput.getOpposites.head.getOwner}")
         partitioner(
-          numPartitions(vars.jobContext.push())(
-            subplan.findInput(primaryOperator.inputs.head.getOpposites.head.getOwner)))
+          numPartitions(vars.jobContext.push())(portWithMaxDataSize))
       },
       vars.broadcasts.push(),
       vars.jobContext.push())
